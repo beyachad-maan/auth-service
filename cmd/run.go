@@ -24,7 +24,7 @@ var runCmd = cobra.Command{
 
 var dbConfig postgres.Config
 
-const serverPort = 443
+const serverPort = 8443
 
 // Duration to wait for connections to close once
 // a signal was recieved to kill the process.

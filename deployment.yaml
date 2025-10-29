@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      initContainers:
+        - name: auth-service-init
+          image: image-registry.openshift-image-registry.svc:5000/beyachad-maan/auth-service:latest
+          imagePullPolicy: IfNotPresent
+          args:
+          - "migrate"
+          env:
+          - name: DATABASE_NAME
+            value: "auth-service-db"
+          - name: DATABASE_PORT
+            value: "5432"
+          - name: DATABASE_USER
+            value: postgres
+          - name: DATABASE_PASSWORD
+            value: "12345"
+      containers:
+      - name: auth-service
+        image: image-registry.openshift-image-registry.svc:5000/beyachad-maan/auth-service:latest
+        imagePullPolicy: IfNotPresent
+        args:
+          - "run"
+        env:
+        - name: DATABASE_NAME
+          value: "auth-service-db"
+        - name: DATABASE_PORT
+          value: "5432"
+        - name: DATABASE_USER
+          value: postgres
+        - name: DATABASE_PASSWORD
+          value: "12345"
+        ports:
+        - containerPort: 8443
+          name: https-web-svc
+        resources:
+          requests:
+            memory: 200Mi
+            cpu: 150m
+          limits:
+            cpu: 300m
+            memory: 1G
+        volumeMounts:
+        - name: tls-certificates
+          mountPath: "/etc/tls"
+          readOnly: true
+        - name: jwt-key-pair
+          mountPath: "/etc/jwt"
+          readOnly: true
+      volumes:
+      - name: tls-certificates
+        secret:
+          secretName: auth-service-tls-secret
+      - name: jwt-key-pair
+        secret:
+          secretName: jwt-key-pair
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: auth-service
+  ports:
+    - protocol: TCP
+      targetPort: https-web-svc
+      port: 443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-auth-service-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-auth-service
+  template:
+    metadata:
+      labels:
+        app: postgres-auth-service
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:latest
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "12345"
+        - name: POSTGRES_DB
+          value: "auth-service-db"
+        - name: POSTGRES_PORT
+          value: "5432"
+        resources:
+            requests:
+              memory: 200Mi
+              cpu: 150m
+            limits:
+              cpu: 300m
+              memory: 1G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-auth-service
+  labels:
+    app: postgres-auth-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+  selector:
+    app: postgres-auth-service
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auth-service-tls-secret
+type: kubernetes.io/tls
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUQzVENDQXNXZ0F3SUJBZ0lVU0RQakpuNjhES1Qxc1Z2UzZSUkRjYUR2ZDNnd0RRWUpLb1pJaHZjTkFRRUwKQlFBd2ZqRUxNQWtHQTFVRUJoTUNWVk14RXpBUkJnTlZCQWdNQ2tOaGJHbG1iM0p1YVdFeEZqQVVCZ05WQkFjTQpEVk5oYmlCR2NtRnVZMmx6WTI4eEZUQVRCZ05WQkFvTURFRjFkR2dnVTJWeWRtbGpaVEVVTUJJR0ExVUVDd3dMClJHVjJaV3h2Y0cxbGJuUXhGVEFUQmdOVkJBTU1ER0YxZEdndGMyVnlkbWxqWlRBZUZ3MHlOVEV3TWpjeE16UXgKTWpCYUZ3MHlOakV3TWpjeE16UXhNakJhTUg0eEN6QUpCZ05WQkFZVEFsVlRNUk13RVFZRFZRUUlEQXBEWVd4cApabTl5Ym1saE1SWXdGQVlEVlFRSERBMVRZVzRnUm5KaGJtTnBjMk52TVJVd0V3WURWUVFLREF4QmRYUm9JRk5sCmNuWnBZMlV4RkRBU0JnTlZCQXNNQzBSbGRtVnNiM0J0Wlc1ME1SVXdFd1lEVlFRRERBeGhkWFJvTFhObGNuWnAKWTJVd2dnRWlNQTBHQ1NxR1NJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUURJQSt4VnBsd2RKb0NFWlVXagpIdWhxVW0rVHJTOGoxWHljREt6RzllZ2crNTdFb2Q5dHlQRlVDYjF3UGJsblAwMFIyRmdnZFBpajRUOHo0Q3BlCktGdHgrajR5cUh4V0E3YURiem9KYjQzOU5YVXJPL1g2TDJYeS90cUVxeG1Pdlc3OFdaWkpGelN0cHZ1T2gzMnEKSCt4T1M0RGMwNkp0YWxrVTAzenBKNTc2ZTNZTWcwRHZJdGNJNklDRXBTVUJXeHlSZHE1MTlwOTkyaVpRS3M4ZQo3T3RDOHRJbXNKU0kyRk9BcWRDUVdYYWt6ZXBnclpSbFJ3ZHU5cHdJVkVySzVYZHhuU3liTVR5ck01c2tpOTZQCmhHUFdXNjhBWC95NjBhS205V1VmYUE3c281Mm53STVlejlqVkRlQ0xhaVR3UWk2TkpiVFZYRlQ3bXZjMTZQd3kKNVNoN0FnTUJBQUdqVXpCUk1CMEdBMVVkRGdRV0JCUld0M0trTTR1Y241emVyU0xFc3RqU2l0cEd2akFmQmdOVgpIU01FR0RBV2dCUld0M0trTTR1Y241emVyU0xFc3RqU2l0cEd2akFQQmdOVkhSTUJBZjhFQlRBREFRSC9NQTBHCkNTcUdTSWIzRFFFQkN3VUFBNElCQVFBbDRpTzMvRVE5OG5GdUI4VHpIWkJIUVJ1OWs5Y2o1UXhJZzVSNUV6SVkKTnFnLy9saFRXY1NybVFkRmtTRmxnYkJGN1lKNnZzNDRiV0JvZHdTclhTUEp4Z05hQlZOVEVKeXZYd2IwL2U5QgpaeVM3V0pueXgyUzg2UkRlVytEQXhvb2J2S1h4c21MRzJ0SG41bXBWYkRqcVUvOWVnc0dpU25LQXFYNm1ONTFsCjJmWDlCWEZGRkpZY2VqbVE2RHhERmhIcVhVZ0F5QzBCaktYTXVKT1ZubGI3Q2hZWTJucFM3TDMyL2R2aTgvZnYKb1AzVXZvS3lCSkFKdHJNZ3hSMjlUZ2FVemFyUXlvNUVrUkxTMC9hMlloRWJWTHBRYk9UMGN2UGhGdi80NllKTApjWVFCWDlPMUYyL2k4WG14QTI2RWo1QTcrR2YwNEZRVHk5czE0bU1teFpPaAotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2UUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktjd2dnU2pBZ0VBQW9JQkFRRElBK3hWcGx3ZEpvQ0UKWlVXakh1aHFVbStUclM4ajFYeWNES3pHOWVnZys1N0VvZDl0eVBGVUNiMXdQYmxuUDAwUjJGZ2dkUGlqNFQ4ego0Q3BlS0Z0eCtqNHlxSHhXQTdhRGJ6b0piNDM5TlhVck8vWDZMMlh5L3RxRXF4bU92Vzc4V1paSkZ6U3RwdnVPCmgzMnFIK3hPUzREYzA2SnRhbGtVMDN6cEo1NzZlM1lNZzBEdkl0Y0k2SUNFcFNVQld4eVJkcTUxOXA5OTJpWlEKS3M4ZTdPdEM4dEltc0pTSTJGT0FxZENRV1hha3plcGdyWlJsUndkdTlwd0lWRXJLNVhkeG5TeWJNVHlyTTVzawppOTZQaEdQV1c2OEFYL3k2MGFLbTlXVWZhQTdzbzUybndJNWV6OWpWRGVDTGFpVHdRaTZOSmJUVlhGVDdtdmMxCjZQd3k1U2g3QWdNQkFBRUNnZ0VBQklnTnh6akMzMzNBbUUyQ255ZzkvcUtwN2djaSt3eUZDMjFjd0xyNm5sa2YKc1pzemRzY3JBV2RvYTZibXlhVFF1Qkk1dE9iOEwvNisrUXZLVVF6bWtzNlk2ZXc3Z0hZS29STjFCM3drVE5PNwp4MGZCQ3dFQ1dKN2xTU2htd3cxemJGNHZPcTQrNlN4QjNoVllheW90dzVqSXdyZ0QycHIzM3M2V0J1S3g2Yk1MCmNZWERhTnhqaS84eU9JL1lXM2dOZWwyVy96ZnBaRXJEKzF2Uk00YldKZSswR3lFZDZMODg3cTBIM3dNQmFDZ1AKUGl4RGJlZ2VOQkViUmxnOStjNHloamtqZVNhNGc5VlF2aDc1MTZjejkyZFNTd1ZkdmVleE1pVGgvTExwOXdCegpjM255RVgzcStFT2xQN1RRRXZoU1kzTGx1VnFMQzlMaDhmUzdyYi9FRVFLQmdRRGxoSFBrRkZ4RURuQWNWWXRxCmRrZ0FDV1NuVFU5R3JhSElTa0tzS3FpNkZWb2FLYTRLUHgyUHNMTytpUm1JYkQ0OW5EK3ZJSXB0ZFZpZWRobUoKNm50SlRQdWZKb1VWcGJ4QU51ak9mUUVicTNVNFlZdGY4SEdYdEdHajlaM0ZFa0VzZ0F0OTliNXhTNXFlRnRnZQo0cXhLczduUEM5L2g3b3F0Vzd4ZFdtVlhXUUtCZ1FEZkdBZkUyUi9rWTJIT09UUkdqSFcrSmN6eEFmUFFVZnY1CmJPbU5yWmFiRDlBdzhFQkNNLysxeU9yc0c4bmVQQ1BPdG1CUytQMXBPZHNaNG5lZVhiRjhEMnlzVG44bTNreXIKUnBOaEU0Qk5MWklxYmhPSElsM21IZlIrN29QaXVXdHM1VUl5eDZ0amNiUTEzYU5TZ21DU0d5T3p0R2UvZTdESwpYbHV5RjZSWDh3S0JnQlVqZ2RqNzF4T2RrTTNMUXkvbS9QS2o2dFZOMVlOWThwR1Q1VmdlQmJROXl6S2xyQlhkCmdrZDlxdEJkcURCY1o4OGMyUEMwT291aVJ5c3hEV0VhYTRod3dxd0J6RGdXTDZScWFqNjZYS1BEd3VRU2Q5ZTYKT1h3VGJQckE0R3NLSjE2RjNJa1pYUlRxTmE5aHd6MzArcEZXeEVKQmdiazVVeVJzVW9qMmptYmhBb0dBUWtjVApWOG5oamFwd3ppRjBoRmtLU2RsVkQyeXpFSHFxenlrcUlhc21pUjZqalVaeThMZ2VDZFdNNVdSRURyL3pLMkJICk1aOURPZFcwWC9aRjcwaUtoLzdWSEVPZHh1QllDckpHNnBvdWpiOHlJMlRjYkZNcmJrZ0w4UUhQTUxaQlVmS3kKUGYvUHpSVmtvblFjSjFFUWU1ZVFmYnprN2FCRG4zdDA1bTNicHowQ2dZRUFpMWRXazRVSi9PbXZIZHk5VDlVNApPbG5kalhoL3lNNkxZL0NoK0lwUmhpSGNMQmJ6MndwYk5hdGZVMGFTMHBRL3ZLMUdaR3R5Y1FtaXcrRHNJUldNCnV2ZFBWWkZ5OW1yaXN3M0hOMTNxRDVsSGhhRVEvVExMdy9HTW5CMlpiWER0eUxHaktYRGhDNTJXRlNMdk41NG0KMDBFeVc0dTVaeVpDbXNTanFaM1Bvemc9Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jwt-key-pair
+type: Opaque
+data:
+  jwt_public_key.pem: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF3MWxTWHZYTVIrTklIVEpNT2puTgoxY09rdUZQU1BvRW51NzNGOS9mNEErSHhtZDdKdTZVeHd5RWxnWjBxVGhsZTJ4Y2V5QjE3SWhxUlI2bldLQ3hpCkFZbDRIQndjVnJTdEFKOVFYOVAwOWdWVFg0M0NJVjlsL0RmWlpmNm9OQWcyZ2NMYmhiR1RaekFCSHNRMmVJTnYKVXV6c2FONG5LV3JLTnNUTFkwYnVEWk5uTENWZEgybk9pRDVwL1djdXdnZC8wbmtQTjlieHlJd2xYMjlZalBaZQp4bDZlVC9UWjBpN3RpWlNzZ1BONHZXRHNtVkRuTXJHa09KUlZwckt3dm5zZkM4WmxpNXF0bTJ5dWQ2a1p5N3hCCjFYL3k5N3AvRGNkckZOYVNhR0diTGhSajZEZndsVkxaYW1DQ0cyOGRjeDlJbHBhS1MyQm4zMS80VDlGMTcrWEIKWndJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+  jwt_private_key.pem: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2QUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktZd2dnU2lBZ0VBQW9JQkFRRERXVkplOWN4SDQwZ2QKTWt3Nk9jM1Z3NlM0VTlJK2dTZTd2Y1gzOS9nRDRmR1ozc203cFRIRElTV0JuU3BPR1Y3YkZ4N0lIWHNpR3BGSApxZFlvTEdJQmlYZ2NIQnhXdEswQW4xQmYwL1QyQlZOZmpjSWhYMlg4TjlsbC9xZzBDRGFCd3R1RnNaTm5NQUVlCnhEWjRnMjlTN094bzNpY3Bhc28yeE10alJ1NE5rMmNzSlYwZmFjNklQbW45Wnk3Q0IzL1NlUTgzMXZISWpDVmYKYjFpTTlsN0dYcDVQOU5uU0x1MkpsS3lBODNpOVlPeVpVT2N5c2FRNGxGV21zckMrZXg4THhtV0xtcTJiYks1MwpxUm5MdkVIVmYvTDN1bjhOeDJzVTFwSm9ZWnN1RkdQb04vQ1ZVdGxxWUlJYmJ4MXpIMGlXbG9wTFlHZmZYL2hQCjBYWHY1Y0ZuQWdNQkFBRUNnZ0VBUmZFT29XbysvRVFmZHppaGV6MWorWlBGUDZ2ZlBEclE1NUtnTlZLbWpYbFIKbitaWTh5TEh5Tlh1MEZQZHFEM0VMUXcvbktXVmh4WGRDenYvTGI0S1R3T1JxZnJVbUtTeXhtVEVDYk5oWXM1dwpWZWR5NkxEMzJsQ0N1Vlp1a2NhWkFXZXJZbGc4YnZjTWg1LzM0cmtvWEJmdzR2RWJNMlNGUnd1NXlHOUdYenhWCm1JblhBQUVOemM2T2hSSWFYQzFCMDNvZjdqckFONVpuQm9TKzZQZ0d1eVdhSnppb2c1MStXenVQWGFxbS9NeUMKYjJJVmd0MU9sNFh1MVVQR3RqU1NaRzFYUFpTYXhvbWl2U2tMTXhLVHVzczhHOVNHeW90NVV2K3lCQXVXNGZ1KwpjdFRpbmM4ZXN4UHZmWVF0dVpZQmQ2VGw5bEk4czhMbG5ONm13b09DRlFLQmdRRHI2UGlVTGt4cGYrSXFYWXpWCjlISnBveHNoWklxR001L0N4bDZqc3FBQ1FFS0NucTFiMDZraEREbGYwZUx4UG9KMlUwYUhiNzl3QTRnVzloQ2QKMldnR0ZUNjRHVWtBQ3RRamtDajR4SmFPZUdNc25GLzQrOFAzaGw2YzZNcy9ieEVnNU1Ya1JabzhGejZhdXlldwpZRGZ6ZndQU2MxNm5VcHpKWjMrc005S0Vtd0tCZ1FEVC9CWGZrTTRxNlI3c3ZUQlhUaWw4WEdwTlZCbmxhcVBXClUrQTcwY0hiUDR1THpSZFdmeWNTZWJsNEQxY3RDbDJVRml3WkxIbmNUbkRaTlNFdFBNbm44d3dRZE9FUXhqV0UKLzZzeXVuRFltZTVlcXFRcVlaRW9uQ0llUUJ4NkhSVnNJSmxlWUFOSEdEak5xVmo0NnFYNEswelBmcFhqb3dITgptUEN2emhXMUpRS0JnRmxVTGt4dCs2RTNPM3l2VDlUMGF4NTFGS0RnWVZQUDJINzRmbjJkOWRqa1hFcjVxc3RLCnFwQkpBTEMzMlNkZ2RDWTZBa3JtbGFia3IzT0NXV2hzR21lelE3eVNWb0lkbDVhZnorUGpETitGMW9mZDdybHAKSEJ0dVZnVTBZVUh6M0ppSUNDY1g4Lzh0RGhlcEpxNHl3UDBDNjMrVkVCSnJ4ZEs5emlwMnRSQmhBb0dBQjFBNgpIUFZzOTNRRmVodG8wSXBFeWlLU0ZFcmpmZE81QlVydGdJTFRFbEpWNlNQUk8wMjF0bUIyc3BxczRrUHFTSktmClFOc1U5VEhMbU9MSld6c3VxQTd0aXAvTnAvdCttekVLNGZ3bXFvSmRBKzBWTHRVZzRlckpEb3dkcjJUVGVXQ0MKaWd2NzhQYjM5cmh4OWx4NkQxN0hEcDJLWkVrYVpkSng4MDdEMXZVQ2dZQVhnaUc5VytjL2UyWFFMQjJPVVpkYgphUnpxM2ZGalFVOTdnLzRvbkVoa3A0Uy9NbmtDdi9EK0JxVEFSWnRaaE5vTFIzeFo4eWV5UjJvQUdaWnZSOTRUCmxKcENJeUxpTy83bFhnZWhkM2hWcjhOcnZEMWx6WWs5cVlkZFlaaFdxUityKzlpeHRaY0dRZWE1SldPNjBrdUMKdk43Rm5hNlExNXp2cElhUjNSOUFoQT09Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K

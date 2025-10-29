@@ -74,6 +74,7 @@ func migrateDatabase(cmd *cobra.Command, args []string) {
 			time.Sleep(time.Second * 10)
 			continue
 		}
+
 		if err := m.Up(); err != nil {
 			log.Fatal(err)
 		}
