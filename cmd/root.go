@@ -5,8 +5,8 @@ import (
 )
 
 var rootCmd = cobra.Command{
-	Use:  "anglit-customers-service",
-	Long: "Customers service for 'Anglit' mobile application.",
+	Use:  "auth-service",
+	Long: "Customers service for 'beyachad-maan' web application.",
 }
 
 func init() {
